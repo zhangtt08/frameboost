@@ -1,0 +1,68 @@
+{
+  "name": "frameboost",
+  "productName": "FrameBoost",
+  "version": "1.0.0",
+  "description": "本地视频补帧工具：光流插帧 / 帧混合，支持 NVENC 硬件加速",
+  "author": "FrameBoost",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:renderer && npm run build:electron",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "sample": "node scripts/sample.mjs",
+    "test:pipeline": "node scripts/test-pipeline.mjs",
+    "icon": "node scripts/make-icon.mjs",
+    "dist": "npm run build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.frameboost.app",
+    "productName": "FrameBoost",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-renderer/**/*",
+      "dist-electron/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@ffmpeg-installer/**",
+      "node_modules/@ffprobe-installer/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "FrameBoost.exe"
+    }
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "sharp": "^0.35.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

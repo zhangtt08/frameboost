@@ -1,0 +1,12 @@
+node_modules/
+dist-renderer/
+dist-electron/
+release/
+tests/
+*.log
+*.mp4
+*.part
+sample-*.mp4
+test-*.mp4
+out-*.mp4
+.DS_Store
