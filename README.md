@@ -1,66 +1,97 @@
-# FrameBoost · 视频补帧工具
+# FrameBoost
 
-一款 Windows 本地视频补帧（插帧）桌面应用：把低帧率视频提升到更高帧率（如 30fps → 60fps），让画面运动更顺滑。基于 Electron + FFmpeg，**全程本地处理，不上传任何数据**。面向"画质尽量无损"的场景做了专项工程化：精确帧数、色彩元数据透传、10bit 保持、多级失败回退。
+**A local, offline video frame-interpolation app for Windows.** Feed it a low-frame-rate video (e.g. 30 fps) and it outputs a smooth high-frame-rate version (60/90/120 fps+) via FFmpeg optical-flow interpolation or frame blending — with NVENC hardware encoding, 10-bit preservation and HDR color-metadata passthrough. Nothing is ever uploaded; all processing happens on your machine.
 
-**下载**：前往 [Releases](https://github.com/zhangtt08/frameboost/releases) 下载 `FrameBoost.exe`（Windows x64 便携版，免安装，内置 ffmpeg，约 135MB）。
+> 一款全程本地处理的 Windows 视频补帧桌面应用：把 30fps 视频插帧到 60fps+，光流补偿 / 帧混合两档原理，NVENC 硬件加速编码，10bit 与 HDR 色彩元数据完整保留。
 
-![界面](docs/screenshot.png)
+English | [简体中文](./README.zh-CN.md)
 
-## 功能
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D6?logo=windows&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)
+![FFmpeg](https://img.shields.io/badge/FFmpeg-bundled%2C%20no%20install-007808?logo=ffmpeg&logoColor=white)
+![NVENC](https://img.shields.io/badge/encoding-NVENC%20accelerated-76B900)
 
-### 补帧方式（三档）
-| 方式 | 原理 | 适用 |
+**The problem it solves:** low-frame-rate footage looks choppy, and FFmpeg's stock `minterpolate` one-liner is a trap — it silently drops frames at the tail, wrecks 10-bit and HDR color, and re-encodes audio for no reason. FrameBoost wraps carefully engineered ffmpeg filter chains in a simple drag-and-drop queue app: exact output frame counts, color metadata carried through untouched, hardware encoding when available, and automatic multi-level fallback when it is not. It trades speed for quality and tells you so up front (see [Performance expectations](#performance-expectations)).
+
+![Screenshot](docs/screenshot.png)
+
+## ✨ Features
+
+### Three interpolation modes
+
+| Mode | How it works | Best for |
 |---|---|---|
-| 光流补偿 · 精细 | minterpolate AOBMC 自适应分块 + 双向运动估计 + 变分加权 | 画质优先，接受慢速 |
-| 光流补偿 · 均衡 | minterpolate OBMC 运动补偿 | 大多数视频（推荐） |
-| 帧混合 | 相邻帧加权融合（framerate 滤镜） | 速度优先；快速运动场景略有拖影 |
+| Optical flow · Fine | `minterpolate` AOBMC adaptive block size + bidirectional motion estimation + variational weighting | Quality first, slow is fine |
+| Optical flow · Balanced | `minterpolate` OBMC motion compensation | Most videos (recommended) |
+| Frame blending | Weighted fusion of adjacent frames (`framerate` filter) | Speed first; slight ghosting on fast motion |
 
-### 画质工程（企业级要点）
-- **画质三档**：母版级（x264 CRF 10，视觉无损，用于再剪辑/存档）／高画质（CRF 16，推荐）／标准（CRF 20）
-- **精确帧数**：滤镜链采用 `tpad 克隆补帧 → 插帧 → trim 回原时长`，修复了普通 `minterpolate` 链路尾部丢帧的问题（3s@30→60 实测输出恰好 180 帧），保证音画对齐
-- **10bit 保持**：源为 10bit 时输出 10bit（内置编码器能力自动探测，不支持时降级 8bit 并提示）
-- **色彩元数据透传**：bt709 / bt2020 / PQ 等 primaries/TRC/colorspace 原样写入输出，HDR 片源不发灰
-- **音轨无损直写**：默认 `-c:a copy`；编解码器与容器不兼容（如 Opus→MP4）自动回退 AAC 重编码
-- **NVENC 硬件加速**：自动检测（新旧两代驱动预设均支持），不可用或运行失败自动多级回退 CPU；10bit 输出自动跳过 NVENC
-- **帧率解析防呆**：`r_frame_rate` 按 timebase 误报（如 90000/1）时回退 `avg_frame_rate`
-- **封面图容错**：自动排除 MP4 内嵌封面图流，始终选主视频流插帧
-- **输出防覆盖**：目标文件已存在时自动加 ` (1)` 后缀
+### Picture-quality engineering
 
-### 使用体验
-- **多文件队列**：拖拽/多选批量加入，逐个自动处理；每项独立状态徽标（等待/处理中/完成/失败/取消）
-- **失败重试**：队列结束后可一键重试失败项；取消即全队停止
-- **实时进度**：百分比、已处理时长、输出帧数、处理帧率、相对速度、剩余时间估计，可随时取消
-- **偏好持久化**：补帧方式/画质/帧率/封装/硬解设置自动记忆
-- **视频预览**与信息展示（分辨率/帧率/时长/编码/音轨/体积）；完成后展示输出信息并可一键打开所在文件夹
-- **任务进行中关窗确认**，防止误触丢任务
+- **Quality tiers** — Master (x264 CRF 10, visually lossless, for re-editing/archival), High (CRF 16, recommended), Standard (CRF 20).
+- **Exact frame count** — the filter chain uses `tpad` clone-padding → interpolation → `trim` back to the original duration, fixing the tail-frame loss of naive `minterpolate` chains (verified: 3 s @ 30→60 fps outputs exactly 180 frames) so audio and video stay in sync.
+- **10-bit preserved** — 10-bit sources produce 10-bit output (encoder capability is probed automatically; falls back to 8-bit with a notice).
+- **Color metadata passthrough** — bt709 / bt2020 / PQ primaries, transfer characteristics and colorspace are written to the output as-is, so HDR sources don't turn washed out.
+- **Lossless audio copy** — `-c:a copy` by default; automatic re-encode to AAC only when the codec is incompatible with the container (e.g. Opus → MP4).
+- **NVENC hardware acceleration** — auto-detected (both older and current driver presets); falls back through multiple CPU levels if NVENC is unavailable or fails; skipped automatically for 10-bit output.
+- **Guard rails** — falls back to `avg_frame_rate` when `r_frame_rate` misreports via timebase (e.g. 90000/1); excludes embedded cover-art streams so the main video stream is always the one interpolated; never overwrites (`(1)` suffix on collision).
 
-## 使用
+### Workflow
 
-- 目标帧率：×2 / ×3 / ×4 或自定义（5-480，需高于原帧率）
-- 封装：MP4（faststart）/ MKV
-- 环境变量 `FFMPEG_PATH` / `FFPROBE_PATH` 可指向自定义 ffmpeg（如新版以获得更新的 NVENC 支持），默认用内置的
+- **Batch queue** — drag & drop or multi-select; each item gets its own status badge (waiting / processing / done / failed / cancelled).
+- **One-click retry** of failed items after the queue finishes; cancel stops the whole queue.
+- **Live progress** — percent, processed duration, output frame count, processing fps, relative speed, ETA; cancellable at any time.
+- **Persistent preferences** — interpolation mode, quality, target fps, container and hardware settings are remembered.
+- **Preview & info panel** — resolution / fps / duration / codec / audio / size; output info after completion with a one-click "open folder".
+- **Close-window guard** while a job is running.
 
-## 开发与测试
+## 🚀 Quick Start
 
-要求 Node.js ≥ 20.19（推荐 22 LTS）。克隆本仓库后：
+### Download (recommended)
 
-```bat
+Grab `FrameBoost.exe` from [Releases](https://github.com/zhangtt08/frameboost/releases) — a Windows x64 portable build (no installer), with ffmpeg bundled (~135 MB). Run it and drop a video in.
+
+### Build from source
+
+Prerequisites: Windows, Node.js ≥ 20.19 (22 LTS recommended).
+
+```bash
+git clone https://github.com/zhangtt08/frameboost.git
+cd frameboost
 npm install
-npm run dev           # vite + electron 开发模式
-npm run test:pipeline # 补帧参数构建单元测试（42 项断言）
-npm run sample        # 生成 6 秒 30fps 演示视频
-npm run icon          # 重新生成 build/icon.ico
-npm run dist          # 打包 portable exe 到 release/
+npm run dev            # vite + electron dev mode
+npm run test:pipeline  # unit tests for the ffmpeg filter-chain builder (42 assertions)
+npm run sample         # generate a 6-second 30fps demo clip
+npm run dist           # package a portable exe into release/
 ```
 
-Windows 下也可直接双击 `启动开发模式.cmd` / `打包Windows.cmd`（首次运行会自动安装依赖）。
+On Windows you can also just double-click `启动开发模式.cmd` / `打包Windows.cmd` (dependencies install automatically on first run).
 
-测试输入样例（`tests/`）覆盖：无音轨、Opus 音轨、内嵌封面图、10bit、MKV 容器。
+Test inputs (`tests/`) cover: no audio track, Opus audio, embedded cover art, 10-bit, MKV container.
 
-## 性能预期
+### Options
 
-光流补偿为 CPU 密集型：640×360 实测约 0.4x 实时速度，1080p 通常仅 0.05~0.2x。建议先用「帧混合」快速确认参数，再用光流模式出成片。场景切换处 ffmpeg 自动检测（scd）改为复制帧，避免跨镜头鬼影。NVENC 只加速编码环节，补帧本身始终由 CPU 完成。
+- Target frame rate: ×2 / ×3 / ×4 or custom (5–480, must exceed the source fps).
+- Container: MP4 (faststart) / MKV.
+- Env vars `FFMPEG_PATH` / `FFPROBE_PATH` point to a custom ffmpeg (e.g. a newer build for newer NVENC support); the bundled one is used by default.
 
-## License
+## 🏗️ Architecture / How it works
 
-MIT
+```
+electron/
+├─ main.ts      # app lifecycle, window, IPC
+├─ pipeline.ts  # pure logic: ffmpeg filter chains, NVENC attempt plans, fallback levels
+└─ preload.ts   # contextBridge (contextIsolation + sandbox)
+src/            # React renderer: queue UI, progress, preferences
+scripts/        # dev/test/sample/icon helpers
+```
+
+`pipeline.ts` builds the complete ffmpeg invocation as a pure, unit-tested plan: it picks the interpolation filter chain, probes encoder capabilities (10-bit support, NVENC presets), and produces an ordered list of attempts — NVENC first when available, then CPU fallback levels — so a failed hardware attempt degrades gracefully instead of failing the job. Scene changes are auto-detected (`scd`) and use frame copies to avoid cross-shot ghosting.
+
+## Performance expectations
+
+Optical-flow interpolation is CPU-bound: measured at roughly **0.4× realtime for 640×360**, and typically **0.05–0.2× for 1080p**. The recommended workflow is to confirm parameters quickly with *Frame blending*, then render the final output with an optical-flow mode. NVENC accelerates encoding only — interpolation itself is always done on the CPU.
+
+## 📄 License
+
+[MIT](./LICENSE)
