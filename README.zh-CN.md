@@ -66,3 +66,19 @@ Windows 下也可直接双击 `启动开发模式.cmd` / `打包Windows.cmd`（�
 ## License
 
 MIT（[LICENSE](./LICENSE)）
+
+## 🤖 Agent API
+
+应用运行期间，本地 HTTP 接口监听 `127.0.0.1:8393`：
+
+| 路由 | 方法 | 请求体 | 返回 |
+|---|---|---|---|
+| `/health` | GET | — | 版本 |
+| `/api/nvenc` | GET | — | NVENC 能力（`none` / `legacy` / `modern`）|
+| `/api/probe` | POST | `{inputPath}` | 时长/帧率/像素格式/编码/10bit 信息 |
+| `/api/render` | POST | `{inputPath, outputPath, targetFps, mode: "high"\|"balanced"\|"fast", quality?, useNvenc?, container?}` | 202 受理（异步渲染）|
+| `/api/job` | GET | — | 实时进度 + 最近一次渲染结果（`outputPath`、`sizeBytes`、`fps`）|
+
+端口覆盖：`FRAMEBOOST_API_PORT`。
+
+## 许可证

@@ -15,6 +15,7 @@ import {
   type ProbeResult,
   type RenderParams
 } from './pipeline'
+import { createAgentApiServer, DEFAULT_API_PORT, type RenderStateSnapshot } from './agent-api'
 
 interface Job {
   proc: ReturnType<typeof spawn>
@@ -37,6 +38,9 @@ let mainWindow: BrowserWindow | null = null
 let job: Job | null = null
 let lastCommand = ''
 let quitting = false
+
+// Agent API 用的最近一次渲染结果快照（render:done / render:error 时更新）
+const lastRenderState: RenderStateSnapshot = { done: false, ok: false, result: null, error: null }
 
 // ---------- ffmpeg / ffprobe 二进制解析 ----------
 
@@ -67,6 +71,17 @@ function tail(s: string, n: number): string {
 }
 
 function sendToWindow(channel: string, payload: unknown): void {
+  if (channel === 'render:done') {
+    lastRenderState.done = true
+    lastRenderState.ok = true
+    lastRenderState.result = payload as Record<string, unknown>
+    lastRenderState.error = null
+  } else if (channel === 'render:error') {
+    lastRenderState.done = true
+    lastRenderState.ok = false
+    lastRenderState.result = null
+    lastRenderState.error = String((payload as { message?: unknown })?.message ?? '')
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload)
   }
@@ -396,6 +411,40 @@ function sanitizeParams(raw: unknown): RenderParams {
 
 const VIDEO_EXTS = ['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'ts', 'm4v', 'mpg', 'mpeg', 'wmv', '3gp', 'vob', 'ogv', 'm2ts']
 
+async function startRender(raw: unknown): Promise<{ ok: boolean; command?: string; encoderLabel?: string; error?: string }> {
+  try {
+    if (job) return { ok: false, error: '已有任务正在运行，请先等待完成或取消' }
+    const p0 = sanitizeParams(raw)
+    const info = await probeVideo(p0.inputPath)
+    const srcFps = info.fps > 0 ? info.fps : info.avgFps
+    if (!(srcFps > 0)) return { ok: false, error: '无法读取原视频帧率' }
+    if (p0.targetFps <= srcFps + 0.01) {
+      return { ok: false, error: `目标帧率需高于原帧率（原 ${Math.round(srcFps * 100) / 100} fps）` }
+    }
+    const tenBitCapable = await detectTenBit()
+    const eff = pixFmtFor(info.pixFmt, tenBitCapable)
+    let nvencLevel: NvencLevel = 'none'
+    if (p0.useNvenc && !eff.downgraded) nvencLevel = await detectNvenc()
+    const attempts = planAttempts(p0, nvencLevel, !eff.downgraded)
+    // 重名输出自动加后缀，避免覆盖
+    const outputPath = resolveOutputPath(p0.outputPath, (x) => fs.existsSync(x))
+    const p: RenderParams = { ...p0, outputPath }
+    if (eff.downgraded) {
+      sendToWindow('render:notice', {
+        message: '源视频为 10bit，内置编码器不支持 10bit H.264，将以 8bit 输出'
+      })
+    }
+    lastRenderState.done = false
+    lastRenderState.ok = false
+    lastRenderState.result = null
+    lastRenderState.error = null
+    spawnAttempt(p, info, attempts, 0, tenBitCapable)
+    return { ok: true, command: lastCommand, encoderLabel: encoderLabel(attempts[0].nvenc) }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle('video:probe', async (_e, rawPath: unknown) => {
     try {
@@ -406,33 +455,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('render:start', async (_e, raw: unknown) => {
-    try {
-      if (job) return { ok: false, error: '已有任务正在运行，请先等待完成或取消' }
-      const p0 = sanitizeParams(raw)
-      const info = await probeVideo(p0.inputPath)
-      const srcFps = info.fps > 0 ? info.fps : info.avgFps
-      if (!(srcFps > 0)) return { ok: false, error: '无法读取原视频帧率' }
-      if (p0.targetFps <= srcFps + 0.01) {
-        return { ok: false, error: `目标帧率需高于原帧率（原 ${Math.round(srcFps * 100) / 100} fps）` }
-      }
-      const tenBitCapable = await detectTenBit()
-      const eff = pixFmtFor(info.pixFmt, tenBitCapable)
-      let nvencLevel: NvencLevel = 'none'
-      if (p0.useNvenc && !eff.downgraded) nvencLevel = await detectNvenc()
-      const attempts = planAttempts(p0, nvencLevel, !eff.downgraded)
-      // 重名输出自动加后缀，避免覆盖
-      const outputPath = resolveOutputPath(p0.outputPath, (x) => fs.existsSync(x))
-      const p: RenderParams = { ...p0, outputPath }
-      if (eff.downgraded) {
-        sendToWindow('render:notice', {
-          message: '源视频为 10bit，内置编码器不支持 10bit H.264，将以 8bit 输出'
-        })
-      }
-      spawnAttempt(p, info, attempts, 0, tenBitCapable)
-      return { ok: true, command: lastCommand, encoderLabel: encoderLabel(attempts[0].nvenc) }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
+    return startRender(raw)
   })
 
   ipcMain.handle('render:cancel', () => {
@@ -568,6 +591,31 @@ if (!gotLock) {
     registerIpc()
     createWindow()
     console.log('[frameboost] main ready, ffmpeg =', ffmpegPath)
+    // Agent API：复用应用内 probe/render 流程；端口被占用时静默跳过。
+    try {
+      const apiServer = createAgentApiServer({
+        version: app.getVersion(),
+        startRender,
+        getJobSummary: () => ({
+          running: job !== null,
+          outputPath: job?.params.outputPath,
+          inputPath: job?.params.inputPath,
+          targetFps: job?.params.targetFps,
+          frame: job?.frame,
+          fps: job?.fps,
+          speed: job?.speed
+        }),
+        probeVideo,
+        detectNvenc,
+        lastRenderState
+      })
+      apiServer.on('error', () => {})
+      apiServer.listen(Number(process.env.FRAMEBOOST_API_PORT) || DEFAULT_API_PORT, '127.0.0.1', () => {
+        console.log('[frameboost-agent-api] listening on http://127.0.0.1:' + (Number(process.env.FRAMEBOOST_API_PORT) || DEFAULT_API_PORT))
+      })
+    } catch {
+      /* ignore */
+    }
   })
 }
 

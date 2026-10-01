@@ -95,3 +95,19 @@ Optical-flow interpolation is CPU-bound: measured at roughly **0.4× realtime fo
 ## 📄 License
 
 [MIT](./LICENSE)
+
+## 🤖 Agent API
+
+While the app is running, a local HTTP API is available on `127.0.0.1:8393`:
+
+| Endpoint | Method | Body | Result |
+|---|---|---|---|
+| `/health` | GET | — | version |
+| `/api/nvenc` | GET | — | NVENC capability (`none` / `legacy` / `modern`) |
+| `/api/probe` | POST | `{inputPath}` | duration, fps, pixFmt, codec, 10-bit info |
+| `/api/render` | POST | `{inputPath, outputPath, targetFps, mode: "high"\|"balanced"\|"fast", quality?, useNvenc?, container?}` | 202 accepted (renders asynchronously) |
+| `/api/job` | GET | — | live progress + last render result (`outputPath`, `sizeBytes`, `fps`) |
+
+Port override: `FRAMEBOOST_API_PORT`.
+
+## 📄 License
