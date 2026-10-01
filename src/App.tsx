@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { DonePayload, MetaInfo, Mode, NvencLevel, ProgressData, Quality } from './types'
 import type { ProbeResult } from './types'
 
@@ -461,9 +462,16 @@ export default function App() {
   const shownOut = items.length === 1 ? (outputLocked ? outputPath : autoOut) : ''
   const canStart = !running && pendingCount > 0 && (items.length > 1 || fpsValid)
 
+  // 标题栏双击空白处切换最大化（命中可交互元素时忽略）
+  const onTitlebarDoubleClick = useCallback((e: ReactMouseEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement
+    if (target.closest('button, a, input, select, textarea')) return
+    void window.api?.windowControls?.toggleMaximize()
+  }, [])
+
   return (
-    <div className="app">
-      <header className="top">
+    <>
+      <header className="top" onDoubleClick={onTitlebarDoubleClick}>
         <div className="brand">
           <div className="logo" aria-hidden>
             <svg viewBox="0 0 24 24" fill="none">
@@ -481,7 +489,10 @@ export default function App() {
           <span className={badge.cls}>{badge.text}</span>
           {meta?.ffmpegVersion && <span className="badge dim">ffmpeg {meta.ffmpegVersion}</span>}
         </div>
+        <WindowButtons />
       </header>
+
+      <div className="app">
 
       {!hasApi && (
         <div className="banner">
@@ -820,6 +831,56 @@ export default function App() {
           e.currentTarget.value = ''
         }}
       />
+      </div>
+    </>
+  )
+}
+
+// 自绘标题栏三键：最小化 / 最大化(还原) / 关闭
+function WindowButtons() {
+  const controls = typeof window !== 'undefined' ? window.api?.windowControls : undefined
+  const [maximized, setMaximized] = useState(false)
+
+  useEffect(() => {
+    if (!controls) return
+    void controls
+      .isMaximized()
+      .then(setMaximized)
+      .catch(() => undefined)
+    return controls.onMaximizedChange(setMaximized)
+  }, [controls])
+
+  if (!controls) return null
+
+  return (
+    <div className="win-controls">
+      <button className="win-btn" title="最小化" aria-label="最小化" onClick={() => void controls.minimize()}>
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden>
+          <path d="M1 6h10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      </button>
+      <button
+        className="win-btn"
+        title={maximized ? '向下还原' : '最大化'}
+        aria-label={maximized ? '向下还原' : '最大化'}
+        onClick={() => void controls.toggleMaximize()}
+      >
+        {maximized ? (
+          <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+            <rect x="1.5" y="3.5" width="7" height="7" rx="1.2" />
+            <path d="M3.5 3.5v-2h7v7h-2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+            <rect x="1.5" y="1.5" width="9" height="9" rx="1.2" />
+          </svg>
+        )}
+      </button>
+      <button className="win-btn close" title="关闭" aria-label="关闭" onClick={() => void controls.close()}>
+        <svg viewBox="0 0 12 12" width="12" height="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" aria-hidden>
+          <path d="M2 2l8 8M10 2l-8 8" />
+        </svg>
+      </button>
     </div>
   )
 }

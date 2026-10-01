@@ -18,7 +18,16 @@ declare global {
       onDone(cb: (d: DonePayload) => void): () => void
       onError(cb: (d: { message: string; log?: string }) => void): () => void
       onCancelled(cb: () => void): () => void
+      windowControls?: WindowControls
     }
+  }
+
+  interface WindowControls {
+    minimize(): Promise<void>
+    toggleMaximize(): Promise<boolean>
+    close(): Promise<void>
+    isMaximized(): Promise<boolean>
+    onMaximizedChange(cb: (maximized: boolean) => void): () => void
   }
 }
 

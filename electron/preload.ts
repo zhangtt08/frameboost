@@ -29,7 +29,15 @@ const api = {
   onNotice: (cb: (d: unknown) => void) => sub('render:notice', cb),
   onDone: (cb: (d: unknown) => void) => sub('render:done', cb),
   onError: (cb: (d: unknown) => void) => sub('render:error', cb),
-  onCancelled: (cb: () => void) => sub('render:cancelled', cb)
+  onCancelled: (cb: () => void) => sub('render:cancelled', cb),
+  windowControls: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: async () => (await ipcRenderer.invoke('window:toggle-maximize')) === true,
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: async () => (await ipcRenderer.invoke('window:is-maximized')) === true,
+    onMaximizedChange: (cb: (maximized: boolean) => void) =>
+      sub('window:maximized', (data) => cb(data === true))
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)

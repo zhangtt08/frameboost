@@ -126,6 +126,13 @@ export function installDevMock(): void {
       return () => {
         listeners.cancelled = null
       }
+    },
+    windowControls: {
+      minimize: async () => undefined,
+      toggleMaximize: async () => false,
+      close: async () => undefined,
+      isMaximized: async () => false,
+      onMaximizedChange: () => () => undefined
     }
   }
   ;(window as unknown as { api: unknown }).api = api

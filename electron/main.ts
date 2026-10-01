@@ -503,6 +503,27 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('nvenc:check', () => detectNvenc())
+
+  // 自绘标题栏：窗口三键
+  ipcMain.handle('window:minimize', () => {
+    mainWindow?.minimize()
+  })
+
+  ipcMain.handle('window:toggle-maximize', () => {
+    if (!mainWindow) return false
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+      return false
+    }
+    mainWindow.maximize()
+    return true
+  })
+
+  ipcMain.handle('window:close', () => {
+    mainWindow?.close()
+  })
+
+  ipcMain.handle('window:is-maximized', () => !!mainWindow?.isMaximized())
 }
 
 // ---------- 窗口与生命周期 ----------
@@ -514,6 +535,7 @@ function createWindow(): void {
     minWidth: 980,
     minHeight: 680,
     show: false,
+    frame: false,
     backgroundColor: '#0b0d13',
     autoHideMenuBar: true,
     title: 'FrameBoost · 视频补帧',
@@ -533,6 +555,10 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+  // 自绘标题栏：向渲染层广播最大化状态变化
+  const sendMaximized = (maximized: boolean) => mainWindow?.webContents.send('window:maximized', maximized)
+  mainWindow.on('maximize', () => sendMaximized(true))
+  mainWindow.on('unmaximize', () => sendMaximized(false))
   // 任务进行中关闭窗口需确认，防止误触丢任务
   mainWindow.on('close', (e) => {
     if (quitting || !job || !mainWindow) return
