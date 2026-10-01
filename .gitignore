@@ -2,7 +2,8 @@ node_modules/
 dist-renderer/
 dist-electron/
 release/
-tests/
+# tests/ are real assets and must be tracked — do not ignore them.
+agent/.endpoint
 *.log
 *.mp4
 *.part

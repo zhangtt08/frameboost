@@ -562,11 +562,8 @@ export default function App() {
                     处理队列 <span className="q-count">{items.length}</span>
                   </label>
                   <div className="q-actions">
-                    <button className="mini" disabled={busy || !hasApi} onClick={() => fileInputRef.current?.click()}>
-                      ＋ 添加
-                    </button>
                     <button className="mini" disabled={busy || !hasApi} onClick={() => void addViaDialog()}>
-                      浏览…
+                      ＋ 添加视频
                     </button>
                   </div>
                 </div>
@@ -778,6 +775,15 @@ export default function App() {
                       <span className="chip ok">{fmtFps(sel.result.fps ?? 0)} fps</span>
                       <span className="chip ok">{fmtSize(sel.result.sizeBytes)}</span>
                       <span className="chip ok">{fmtDuration(sel.result.durationSec ?? 0)}</span>
+                    </div>
+                    <div className="btn-row result-actions">
+                      <button
+                        className="mini"
+                        title="在文件管理器中显示输出文件"
+                        onClick={() => void window.api.showInFolder(sel.result!.outputPath)}
+                      >
+                        打开所在文件夹
+                      </button>
                     </div>
                   </div>
                 )}

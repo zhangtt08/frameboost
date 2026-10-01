@@ -67,8 +67,6 @@ npm run dist           # package a portable exe into release/
 
 On Windows you can also just double-click `启动开发模式.cmd` / `打包Windows.cmd` (dependencies install automatically on first run).
 
-Test inputs (`tests/`) cover: no audio track, Opus audio, embedded cover art, 10-bit, MKV container.
-
 ### Options
 
 - Target frame rate: ×2 / ×3 / ×4 or custom (5–480, must exceed the source fps).
@@ -80,34 +78,66 @@ Test inputs (`tests/`) cover: no audio track, Opus audio, embedded cover art, 10
 ```
 electron/
 ├─ main.ts      # app lifecycle, window, IPC
-├─ pipeline.ts  # pure logic: ffmpeg filter chains, NVENC attempt plans, fallback levels
+├─ pipeline.ts  # pure logic: ffmpeg filter chains, attempt plans, output naming (unit-tested)
+├─ ffmpeg.ts    # shared engine: binary resolution, ffprobe probing, NVENC / 10-bit detection
+├─ agent-api.ts # in-app REST (port 8393) reusing the app's live render flow
 └─ preload.ts   # contextBridge (contextIsolation + sandbox)
 src/            # React renderer: queue UI, progress, preferences
+agent/          # standalone Agent API + MCP bridge (port 8791), see agent/README.md
 scripts/        # dev/test/sample/icon helpers
 ```
 
-`pipeline.ts` builds the complete ffmpeg invocation as a pure, unit-tested plan: it picks the interpolation filter chain, probes encoder capabilities (10-bit support, NVENC presets), and produces an ordered list of attempts — NVENC first when available, then CPU fallback levels — so a failed hardware attempt degrades gracefully instead of failing the job. Scene changes are auto-detected (`scd`) and use frame copies to avoid cross-shot ghosting.
+`pipeline.ts` builds the complete ffmpeg invocation as a pure, unit-tested plan: it picks the interpolation filter chain and produces an ordered list of attempts (NVENC first when available, then CPU fallback levels) so a failed hardware attempt degrades gracefully. `electron/ffmpeg.ts` is the single source of truth for capability probing (10-bit support, NVENC presets) and is reused by **both** the desktop app and `agent/` — so the two never diverge. Scene changes are auto-detected (`scd`) and use frame copies to avoid cross-shot ghosting.
 
 ## Performance expectations
 
 Optical-flow interpolation is CPU-bound: measured at roughly **0.4× realtime for 640×360**, and typically **0.05–0.2× for 1080p**. The recommended workflow is to confirm parameters quickly with *Frame blending*, then render the final output with an optical-flow mode. NVENC accelerates encoding only — interpolation itself is always done on the CPU.
 
-## 📄 License
+## 🤖 Agent API / MCP
 
-[MIT](./LICENSE)
+FrameBoost exposes its real capabilities (ffmpeg probing, NVENC detection, frame-interpolation rendering) as a schema-described tool surface, so any agent — Tcode, Claude Code, Codex, or any MCP client — can drive it without reading source or guessing routes. There are two surfaces:
 
-## 🤖 Agent API
+### 1. Standalone Agent API + MCP (recommended for agents) — port **8791**
 
-While the app is running, a local HTTP API is available on `127.0.0.1:8393`:
+A dependency-free local server in `agent/` that follows the machine-wide Agent API Standard. It **reuses the exact same compiled core as the desktop app** (`electron/pipeline.ts` for command building, and a shared `electron/ffmpeg.ts` engine for probing / NVENC / 10-bit detection) — no second implementation, no stubbed data.
+
+```bash
+npm run agent:serve     # builds the electron core, then serves http://127.0.0.1:8791
+npm run agent:mcp       # stdio MCP bridge (initialize / tools/list / tools/call)
+```
+
+| HTTP contract | |
+|---|---|
+| `GET /api/health` | `{ok, data:{project, version, agent_api:1, tools, uptime_ms}}` |
+| `GET /api/agent/tools` | tool descriptors `{name, description, input_schema, risk}` |
+| `POST /api/agent/tool` | body `{tool, input}` → `{ok, data, tool, ms}`; errors as `{ok:false, error:{code, message}}` |
+
+Tools (all prefixed `frameboost.`):
+
+| Tool | Risk | What it does |
+|---|---|---|
+| `capability_probe` | read | Real ffmpeg/ffprobe paths + versions, NVENC level, 10-bit capability |
+| `list_inputs` | read | List processable video files in a directory (real `stat`) |
+| `probe_video` | read | ffprobe one file + suggested ×2/×3/×4 target fps |
+| `render_start` | **exec** | Build & actually run an interpolation job (`confirm:true` required; otherwise returns a dry-run plan). Returns a `jobId` |
+| `job_status` | read | Poll progress (percent, processed time, speed, ETA) and the real re-probed output result |
+| `cancel_job` | **write** | Stop a running job and clean up its `.part` file (`confirm:true` required) |
+| `list_outputs` | read | List FrameBoost-generated outputs in a directory |
+
+`render_start` is a write action: without `confirm:true` it executes nothing and returns the resolved plan (output path, attempt sequence, encoder); with `confirm:true` it spawns the same ffmpeg invocation the desktop app would. See [`agent/README.md`](./agent/README.md) for details.
+
+### 2. In-app REST — port 8393
+
+While the desktop app itself is running, a lighter REST surface is available on `127.0.0.1:8393` (`FRAMEBOOST_API_PORT` to override), reusing the app's live render pipeline:
 
 | Endpoint | Method | Body | Result |
 |---|---|---|---|
 | `/health` | GET | — | version |
 | `/api/nvenc` | GET | — | NVENC capability (`none` / `legacy` / `modern`) |
 | `/api/probe` | POST | `{inputPath}` | duration, fps, pixFmt, codec, 10-bit info |
-| `/api/render` | POST | `{inputPath, outputPath, targetFps, mode: "high"\|"balanced"\|"fast", quality?, useNvenc?, container?}` | 202 accepted (renders asynchronously) |
-| `/api/job` | GET | — | live progress + last render result (`outputPath`, `sizeBytes`, `fps`) |
-
-Port override: `FRAMEBOOST_API_PORT`.
+| `/api/render` | POST | `{inputPath, outputPath, targetFps, mode, quality?, useNvenc?, container?}` | 202 accepted (renders asynchronously) |
+| `/api/job` | GET | — | live progress + last render result |
 
 ## 📄 License
+
+[MIT](./LICENSE)

@@ -18,6 +18,8 @@
     "sample": "node scripts/sample.mjs",
     "test:pipeline": "node scripts/test-pipeline.mjs",
     "icon": "node scripts/make-icon.mjs",
+    "agent:serve": "npm run build:electron && node -e \"import('./agent/server.mjs').then(m=>m.start({port:8791}))\"",
+    "agent:mcp": "node -e \"process.env.AGENT_DEFAULT_BASE='http://127.0.0.1:8791';process.env.AGENT_PORT='8791';import('./agent/mcp-server.mjs')\"",
     "dist": "npm run build && electron-builder --win"
   },
   "build": {

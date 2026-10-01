@@ -1,0 +1,5 @@
+{
+  "command": "node",
+  "args": ["agent/server.mjs"],
+  "ready_port": 8791
+}
