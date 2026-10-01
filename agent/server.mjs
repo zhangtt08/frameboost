@@ -85,7 +85,9 @@ export async function start({ port: wantPort, host = '127.0.0.1', label = 'agent
       } else if (route === '/api/agent/tool' && req.method === 'POST') {
         const body = await readBody(req);
         const tool = byName.get(body.tool);
-        if (!tool) json(res, 400, { ok: false, error: { code: 'unknown_tool', message: `未注册的工具：${body.tool}`, available: [...byName.keys()] } });
+        // 未注册的工具必须在这里就回完并 return：落进下面的 try 会在已结束的响应上二次发送，
+        // 把 keep-alive 连接打坏，后续请求全部 ECONNRESET。
+        if (!tool) { json(res, 400, { ok: false, error: { code: 'unknown_tool', message: `未注册的工具：${body.tool}`, available: [...byName.keys()] } }); return; }
         try {
           const t0 = Date.now();
           validate(tool.input_schema, body.input);
